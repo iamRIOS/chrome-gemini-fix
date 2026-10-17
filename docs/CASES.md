@@ -1,72 +1,89 @@
-# Cases — the full data behind the fix
+# Technical notes — what the fix does and why
 
-Two real machines, same Chrome 155, same root cause, different symptoms.
+## The two root causes (same on Windows and Linux)
 
-## Case 1 — Linux: button missing entirely
+**1. Region gating.** Gemini in Chrome rolls out to US profiles/locales. A non-US value
+anywhere in the profile (`variations_country`, safe-seed countries, `app_locale`,
+`accept_languages`) — or a bare launch without a country override — keeps Glic disabled.
+Symptoms range from *no button at all* to *“not available in your region”* depending on
+which keys are affected.
 
-- OS: Omarchy 4.4 (Arch), HyVland 0.56, system locale `ru_RU.UTF-8`
-- Chrome `155.0.8059.84-1` from the `omarchy` pacman repo, fresh install
-- Symptom: no Ask Gemini toolbar icon, no `chrome://glic` panel, no context-menu entry.
-  `chrome://flags` alone changed nothing.
+**2. The Variations seed.** A ~39 KB server-side field-trial config stored next to
+`Local State` (`Variations`, `VariationsSeedV2`, `VariationsSafeSeedV2`). It overrides
+`chrome://flags` and force-disables Glic. Deleting it *and* launching with
+`--disable-variations-seed-fetch` is required — either step alone does nothing.
+After the fix the files stay as ~100-byte placeholders.
 
-Fix applied (see the full step-by-step in the original guide):
-system locale → `en_US.UTF-8`, launcher `~/.local/bin/google-chrome-glic`
-deleting the Variations seed on every start + flags
-`Glic,GlicRollout,GlicContextMenu,GlicLiveMode,GlicVoice`, desktop override
-`~/.local/share/applications/google-chrome.desktop`.
-Result: icon, side panel, right-click entry and Go Live voice all work.
+## What `fix.py` changes
 
-## Case 2 — Windows: button present, “unavailable in region”
+**`Local State`** (backup `Local State.bak-<timestamp>` first):
 
-- OS: Windows 11 Pro, system locale `ru-RU`, Chrome `155.0.8059.85`
-- VPN: Germany (kept as-is — the Linux case worked with it too)
-- Symptom: Ask Gemini opens but answers “not available in your region”.
-
-### Before
-
-| Key | Value |
+| Key | Set to |
 |---|---|
-| `variations_country` | `us` (already patched by an earlier attempt) |
-| `variations_permanent_consistency_country` | `["155.0.8059.85", "us"]` |
-| `variations_permanent_overridden_country` | *(empty)* |
+| `variations_country` | `us` |
+| `variations_permanent_consistency_country` | `["<chrome version>", "us"]` |
+| `variations_permanent_overridden_country` | `us` |
 | `variations_safe_seed_permanent_consistency_country` | `us` |
-| `variations_safe_seed_session_consistency_country` | **`de`** ← German IP leaked in |
-| `app_locale` | *(empty)* |
-| `variations_safe_seed_locale` | **`ru`** |
-| `is_glic_eligible` | **`false`** |
-| `browser.enabled_labs_experiments` | *(empty)* |
-| `Preferences: sync.glic_rollout_eligibility` | `true` |
-| `Preferences: glic.pinned_to_tabstrip` | `true` |
-| `Preferences: intl.accept_languages` | `ru,ru-RU,en` |
-| `Variations` / `VariationsSeedV2` / `VariationsSafeSeedV2` | 86 B / 172 B / **41636 B** ← live seed |
-| Shortcut args | *(none)* — `chrome.exe` launched bare |
+| `variations_safe_seed_session_consistency_country` | `us` |
+| `app_locale`, `variations_safe_seed_locale` | `en-US` |
+| every `is_glic_eligible` (recursive) | `true` |
+| `browser.enabled_labs_experiments` | existing flags kept + `glic`, `glic-side-panel`, `glic-actor`, `glic-pre-warming`, `glic-entrypoint-variations` |
 
-### After (fix verified working)
+**Every real profile’s `Preferences`** (`Default`, `Profile 1`, …; backup first):
 
-| Key | Value |
+| Key | Set to |
 |---|---|
-| `variations_country` / `overridden` / both safe-seed countries | `us` |
-| `app_locale` / `variations_safe_seed_locale` | `en-US` |
-| `is_glic_eligible` | `true` (survives relaunch) |
-| `enabled_labs_experiments` | `glic@1, glic-side-panel@1, glic-actor@1, glic-pre-warming@1` |
+| `sync.glic_rollout_eligibility` | `true` |
+| `glic.pinned_to_tabstrip` | `true` |
+| `intl.app_locale` | `en-US` |
 | `intl.accept_languages` | `en-US,en` |
-| Seeds after relaunch | 86 B / 36 B / 140 B (placeholders, fetch disabled) |
-| Main process command line | `chrome.exe --disable-variations-seed-fetch --variations-override-country=us --enable-features=Glic,GlicRollout,GlicContextMenu,GlicLiveMode,GlicVoice --disable-features=GlicTieredRollout,GlicTieredRolloutV2,GlicUserStatusCheck --lang=en-US` |
 
-### Data integrity (before = after)
+**Launch flags** (every start goes through them):
 
-`Login Data` 71680 B · `History` 101941248 B · `Bookmarks` 18044 B ·
-`Web Data` 196608 B · `Default/Network/Cookies` 2588672 B. Nothing deleted
-except the three `Variations*` server-config files.
+```
+--disable-variations-seed-fetch
+--variations-override-country=us
+--enable-features=Glic,GlicRollout,GlicContextMenu,GlicLiveMode,GlicVoice
+--disable-features=GlicTieredRollout,GlicTieredRolloutV2,GlicUserStatusCheck,GlicUseSessionCountryForFiltering
+--lang=en-US
+```
 
-## Why both symptoms share one cause
+- `Glic,GlicRollout` — the feature + rollout gate; `GlicContextMenu` — right-click entry;
+  `GlicLiveMode,GlicVoice` — the Live voice button.
+- The `--disable-features` list removes the tiered-rollout and account/session-country gates.
+- `--lang=en-US` forces the US-English UI level Gemini Live requires, without changing the OS locale.
 
-1. **Region gating** — rollout only happens for US profiles/locales; a `ru`/`de`
-   value anywhere in the country/locale keys, or a bare launch without
-   `--variations-override-country=us`, keeps Glic disabled.
-2. **The Variations seed** — a ~39 KB server config that overrides
-   `chrome://flags` and force-disables Glic. Deleting it *and* passing
-   `--disable-variations-seed-fetch` is required; either alone does nothing.
+## Persistence per OS
 
-Linux showed symptom A (no button at all), Windows symptom B (region error) —
-same two mechanisms, same fix.
+- **Linux:** installs `~/.local/bin/google-chrome-glic` (deletes seeds when Chrome is closed,
+  then launches with the flags) and overrides `~/.local/share/applications/google-chrome.desktop`
+  so the normal icon uses it. The system `.desktop` file is untouched.
+- **Windows:** writes `%LOCALAPPDATA%\Google\Chrome-GLIC\chrome-glic.cmd` and adds the flags
+  to the Taskbar / Desktop / Start Menu shortcuts.
+
+## What is never touched
+
+History, cookies (`Default/Network/Cookies`), passwords (`Login Data`), bookmarks,
+sessions, extensions. The script prints their sizes after patching as proof.
+`Variations*` files hold no user data — only field-trial config.
+
+## Server-side limits (no local fix can override these)
+
+- Signed out → panel refuses. Sign in with a personal Google account, 18+.
+- First run requires opting in; voice requires the microphone permission (`chrome://settings/ai`).
+- A non-US IP can still be refused by Google’s backend even with everything patched.
+
+## Verified configurations
+
+- Windows 11, Chrome 155 (Stable), non-US system locale → region error fixed, seeds stay
+  placeholders (86 / 36 / 140 bytes), command line verified in `chrome://version`.
+- Arch-based Linux, Chrome 155 (Stable), non-US system locale → missing button, panel,
+  context-menu entry and Live voice all restored.
+
+## Sources
+
+- https://github.com/Bloodcrane/chrome-gemini-linux-fix — seed discovery, launcher approach
+- https://github.com/everplus/enable-chrome-ai — cross-platform profile patching
+  (all channels/profiles, safe-seed countries, lab flags)
+- `docs/user_data_dir.md` (Chromium) — profile locations per OS
+- `chrome://version`, `chrome://settings/ai`, `chrome://version/?show-variations-cmd` — diagnostics

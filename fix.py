@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """One-click fix for Gemini in Chrome ("Ask Gemini" missing or "not available in your region").
 
+Works on Windows and Linux, fixes every symptom at once: missing button,
+region error, missing voice button, fix lost after update.
+
 What it does (safe, no data loss):
   1. Backs up `Local State` and every profile's `Preferences` (timestamped copies).
   2. Patches region/eligibility keys to US + English (US) in `Local State`.
@@ -10,13 +13,13 @@ What it does (safe, no data loss):
   6. Relaunches Chrome with the flags that force Glic on.
 
 It never touches history, cookies, passwords, bookmarks or sessions.
-Requires only the Python standard library.
+Requires only the Python standard library (Python 3.8+).
 
 Usage:
-    python3 fix.py            # interactive (asks before closing Chrome)
-    python3 fix.py --yes      # close Chrome automatically, no questions
-    python3 fix.py --check     # diagnose only, change nothing
-    python3 fix.py --no-launch # patch but don't relaunch Chrome
+    python3 fix.py            # Linux: interactive (asks before closing Chrome)
+    py fix.py --yes           # Windows: close Chrome automatically, no questions
+    python3 fix.py --check    # diagnose only, change nothing
+    python3 fix.py --no-launch # patch but do not relaunch Chrome
 """
 
 import argparse
@@ -80,13 +83,6 @@ def user_data_dirs():
             "dev": os.path.join(local, "Google", "Chrome Dev", "User Data"),
             "canary": os.path.join(local, "Google", "Chrome SxS", "User Data"),
         }
-    elif OS == "Darwin":
-        candidates = {
-            "stable": os.path.join(home, "Library", "Application Support", "Google", "Chrome"),
-            "beta": os.path.join(home, "Library", "Application Support", "Google", "Chrome Beta"),
-            "dev": os.path.join(home, "Library", "Application Support", "Google", "Chrome Dev"),
-            "canary": os.path.join(home, "Library", "Application Support", "Google", "Chrome Canary"),
-        }
     else:  # Linux and friends
         config_home = os.environ.get(
             "CHROME_CONFIG_HOME",
@@ -118,15 +114,7 @@ def chrome_binaries():
                 if os.path.isfile(p):
                     found.append((channel, p))
                     break
-    elif OS == "Darwin":
-        apps = [
-            ("stable", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            ("beta", "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta"),
-            ("dev", "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"),
-            ("canary", "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary"),
-        ]
-        found = [(ch, p) for ch, p in apps if os.path.isfile(p)]
-    else:
+    else:  # Linux
         cands = [
             ("stable", "/usr/bin/google-chrome-stable"),
             ("stable", "/usr/bin/google-chrome"),
@@ -156,24 +144,43 @@ def chrome_running():
                 capture_output=True, text=True,
             ).stdout
             return "chrome.exe" in out.lower()
-        name = "Google Chrome" if OS == "Darwin" else "chrome"
-        r = subprocess.run(["pgrep", "-x", name], capture_output=True)
+        r = subprocess.run(["pgrep", "-x", "chrome"], capture_output=True)
         return r.returncode == 0
     except FileNotFoundError:
         return False
 
 
-def close_chrome(timeout=20):
+def close_chrome(timeout=25):
+    """Close Chrome: ask nicely first (profile is flushed), force leftovers after."""
     try:
         if OS == "Windows":
+            # CloseMainWindow is Alt+F4 for each window: Chrome exits cleanly,
+            # flushing history/cookies/sessions to disk.
+            subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-Process chrome -ErrorAction SilentlyContinue | "
+                            "Where-Object {$_.MainWindowHandle -ne 0} | "
+                            "ForEach-Object { $_.CloseMainWindow() }"],
+                           capture_output=True, timeout=30)
             subprocess.run(["taskkill", "/IM", "chrome.exe"], capture_output=True)
-        elif OS == "Darwin":
-            subprocess.run(["pkill", "-x", "Google Chrome"], capture_output=True)
         else:
             subprocess.run(["pkill", "-x", "chrome"], capture_output=True)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    grace = 10 if OS == "Windows" else 6
+    for _ in range(grace * 2):
+        if not chrome_running():
+            return True
+        time.sleep(0.5)
+    # Leftovers that ignore the gentle signal (gpu/utility/renderer processes):
+    # the main process already flushed the profile, so this is safe.
+    try:
+        if OS == "Windows":
+            subprocess.run(["taskkill", "/F", "/IM", "chrome.exe"], capture_output=True)
+        else:
+            subprocess.run(["pkill", "-9", "-x", "chrome"], capture_output=True)
     except FileNotFoundError:
         pass
-    for _ in range(timeout * 2):
+    for _ in range(max((timeout - grace), 1) * 2):
         if not chrome_running():
             return True
         time.sleep(0.5)
@@ -579,14 +586,12 @@ def main():
         for line in clear_seeds(ud) or ["  seed files already absent"]:
             print(f"  removed seed: {line}")
 
-    if OS == "Linux":
-        for p in persist_linux(binary):
-            print(f"installed: {p}")
-    elif OS == "Windows":
+    if OS == "Windows":
         for p in persist_windows(binary):
             print(f"installed: {p}")
-    else:
-        print("macOS: start Chrome with:\n  " + " ".join([binary, *launch_args()]))
+    else:  # Linux
+        for p in persist_linux(binary):
+            print(f"installed: {p}")
 
     if not ns.no_launch:
         launch_chrome(binary)

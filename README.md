@@ -1,77 +1,97 @@
-# chrome-gemini-fix — one-click fix for Gemini in Chrome
+<div align="center">
 
-If **Ask Gemini** is missing from Chrome, or the panel says
-*“Gemini isn’t available right now” / “not available in your region”*,
-run one command. Your data stays untouched.
+# ✨ chrome-gemini-fix
 
-## Quick start
+**One command brings back Ask Gemini in Chrome.**
 
-**Windows** (no Python needed — right-click → *Run with PowerShell*, or):
+Missing button · “Not available in your region” · No voice mode — fixed on Windows and Linux.
+
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/iamRIOS/chrome-gemini-fix)
+[![Linux](https://img.shields.io/badge/Linux-any%20distro-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://github.com/iamRIOS/chrome-gemini-fix)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Chrome](https://img.shields.io/badge/Chrome-151%2B-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://www.google.com/chrome/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
+
+*No data loss. No reinstall. No tech skills needed — copy, paste, done.*
+
+</div>
+
+---
+
+## 🚀 Quick start
+
+Copy **one line**, paste it into your terminal, hit Enter. That’s it.
+
+**Windows** — paste into PowerShell:
 ```powershell
-powershell -ExecutionPolicy Bypass -File fix.ps1
+irm https://raw.githubusercontent.com/iamRIOS/chrome-gemini-fix/main/fix.py -OutFile $env:TEMP/fix.py; py $env:TEMP/fix.py --yes
 ```
+> If `py` is not found, [install Python](https://www.python.org/downloads/) (tick “Add to PATH”) and use `python` instead of `py`.
 
-**Linux / macOS:**
+**Linux** — paste into your terminal:
 ```bash
-./fix.sh
-# or:  python3 fix.py
+curl -fsSL https://raw.githubusercontent.com/iamRIOS/chrome-gemini-fix/main/fix.py -o /tmp/fix.py && python3 /tmp/fix.py --yes
 ```
 
-Close Chrome when asked — your tabs restore on launch.
+Close Chrome when asked — your tabs come back on launch. After the run, open Chrome from your usual icon.
 
-## What it does
+---
 
-- Backs up `Local State` and each profile’s `Preferences` (timestamped, next to the originals)
-- Sets region to US and locale to `en-US` (`variations_country`, safe-seed countries, `app_locale`)
-- Sets every `is_glic_eligible` to `true`, keeps your existing lab flags and adds the Glic ones
-- Enables rollout + pins the button in every real profile (`Default`, `Profile 1`, …)
-- Deletes the **Variations seed** files — Google’s server-side config that force-disables Gemini
-  (they come back as ~100-byte placeholders, not the ~39 KB seed)
-- Makes the fix stick: Linux icon override + launcher, Windows shortcut args + launcher
-- Relaunches Chrome with Gemini force-enabled:
-  `--disable-variations-seed-fetch --variations-override-country=us --enable-features=Glic,GlicRollout,GlicContextMenu,GlicLiveMode,GlicVoice --disable-features=GlicTieredRollout,GlicTieredRolloutV2,GlicUserStatusCheck,GlicUseSessionCountryForFiltering --lang=en-US`
+## ✅ What it fixes
 
-## What it never touches
+| Symptom | Windows | Linux |
+|---|---|---|
+| No **Ask Gemini** button at all | ✅ | ✅ |
+| *“Gemini isn’t available right now” / wrong region* | ✅ | ✅ |
+| Button was there, then disappeared | ✅ | ✅ |
+| No **Live / microphone** voice button | ✅ | ✅ |
+| Broken again after a Chrome update | ✅ just re-run | ✅ just re-run |
 
-History, cookies, passwords, bookmarks, sessions, extensions. After patching it prints their
-sizes so you can see for yourself. `Variations*` files contain no user data — only field-trial config.
+Works for every profile (`Default`, `Profile 1`, …) and every channel (Stable, Beta, Dev, Canary).
 
-## Verify
+## 🛡️ Your data is safe
 
-1. `chrome://version` → Command Line row shows `--enable-features=Glic…`
-2. Star icon top-right, right-click a selection → **Ask Gemini**, `chrome://glic` opens
-3. Mic / Live button in the panel for voice mode
+The script **never touches** history, cookies, passwords, bookmarks, tabs or extensions.
+It only edits two settings files (`Local State`, `Preferences` — timestamped backups are made first)
+and deletes the `Variations*` seed files, which contain **zero user data** — just Google’s
+server-side feature switches. After patching it prints a data-integrity report so you can verify.
 
-## Troubleshooting
+## 🔍 Verify it worked
 
-| Symptom | Fix |
+1. Open `chrome://version` — the **Command Line** row contains `--enable-features=Glic…`
+2. Star icon **✨** top-right, right-click any text → **Ask Gemini**, `chrome://glic` opens
+3. Mic / **Live** button inside the panel for voice mode
+
+## 🆘 Still not working?
+
+| Problem | Solution |
 |---|---|
-| Button was there, then disappeared | Chrome was started without the launcher once and re-fetched the seed — always use the icon / `fix.sh` / `chrome-glic.cmd` |
-| Panel opens, “isn’t available right now” | Server-side refusal: sign in with a personal 18+ Google account, allow the mic; a non-US IP can still be refused |
-| No Live/mic button | Re-run the fix (adds `GlicLiveMode,GlicVoice`), relaunch, check `chrome://settings/ai` |
-| Chrome was updated | Re-run — updates can reset profile flags; the launcher re-applies them each start |
+| Panel opens but says *“isn’t available”* | Sign in with a personal **18+** Google account and allow the microphone — Google can still refuse non-US IPs server-side |
+| Worked, then broke | Chrome was launched bypassing the fix at least once — always use your normal icon after running the script |
+| No Live button | Re-run the script and relaunch, then check `chrome://settings/ai` |
+| Just diagnose, change nothing | `python3 fix.py --check` |
 
-Diagnose without changing anything: `python3 fix.py --check` (or `fix.ps1 -Check`).
+Full technical breakdown: [`docs/CASES.md`](docs/CASES.md).
 
-## Restore
+## ↩️ Restore
 
-```bash
-# Linux: remove the override + launcher
-rm -f ~/.local/share/applications/google-chrome.desktop ~/.local/bin/google-chrome-glic
-# Windows: run fix.ps1 -NoLaunch after clearing shortcut args, or simply remove the args
-# from the Chrome shortcut properties. Then restore the newest backups:
-cp 'Local State.bak-<timestamp>' 'Local State'
-cp 'Default/Preferences.bak-<timestamp>' 'Default/Preferences'
-```
+Delete the launcher persistence (Linux icon override / Windows shortcut args are documented in
+`docs/CASES.md`), restore the newest backups over `Local State` / `Preferences`,
+and launch Chrome normally — it re-fetches a seed and stock behavior returns.
 
-Next launch re-fetches a seed and Gemini hides again — that’s the stock behavior.
+## ⚙️ How it works
 
-## Details
+Chrome ships Gemini everywhere but **region-gates** it for non-US profiles and lets a
+~39 KB **Variations seed** (server-side field-trial config) override `chrome://flags`
+and force-disable it. The script sets the region keys to `us`, locale to `en-US`,
+marks every profile eligible, removes the seed, blocks re-fetching, and launches Chrome
+with the Glic feature tree force-enabled. Details + sources in [`docs/CASES.md`](docs/CASES.md).
 
-- [`docs/CASES.md`](docs/CASES.md) — the two real cases behind this (Linux: missing button; Windows: region error), with before/after values down to the byte
-- Based on [`Bloodcrane/chrome-gemini-linux-fix`](https://github.com/Bloodcrane/chrome-gemini-linux-fix) (seed discovery) and [`everplus/enable-chrome-ai`](https://github.com/everplus/enable-chrome-ai) (cross-platform profile patching), extended with voice flags, `en-US` locale keys, all-profile patching and Windows shortcut persistence
+---
 
-Disabling the variations seed opts out of *all* server-side field trials, including emergency
-kill-switches. Fine for a personal machine, not for managed fleets.
+<div align="center">
 
-MIT — not affiliated with Google.
+MIT · Not affiliated with Google · Disabling the variations seed also opts out of all
+server-side field trials — fine for a personal machine, not for managed fleets.
+
+</div>
